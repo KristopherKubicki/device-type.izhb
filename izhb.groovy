@@ -29,6 +29,7 @@ metadata {
 		capability "Refresh"
 		capability "Sensor"
        
+        command "setAdjustedColor"
         
         // This is a new temporary counter to keep track of no responses
         attribute "unreachable", "number"
@@ -57,7 +58,7 @@ metadata {
 			state "default", label:"", action:"refresh.refresh", icon:"st.secondary.refresh"
 		}
 		controlTile("rgbSelector", "device.color", "color", height: 3, width: 3, inactiveLabel: false) {
-			state "color", action:"setColor"
+			state "color", action:"setAdjustedColor"
 		}
 		controlTile("levelSliderControl", "device.level", "slider", height: 1, width: 2, inactiveLabel: false) {
 			state "level", action:"switch level.setLevel"
@@ -111,18 +112,28 @@ def parse(String description) {
         switch (descMap.cluster) {
             
         	case "0008":
-        		def i = Math.round(convertHexToInt(descMap.value) / 254 * 100 )
+        		def i = Math.round(convertHexToInt(descMap.value) / 255 * 100 )
                 def result = createEvent( name: "switch.setLevel", value: i)
                 return result
              
              // This doesn't seem to be updating the saturation or the hue in the app, even though it should
          	case "0300":           		
-                def i = Math.round(convertHexToInt(descMap.value) / 256 * 100 )
+                def i = Math.round(convertHexToInt(descMap.value) / 255 * 100 )
                 if(descMap.attrId == "0000") { 
-                	def result = createEvent( name: "switch.hue", value: i)
+                    def smallHex = hsvToHex(i / 100,device.currentValue("saturation") / 100)
+                    log.debug "SENDING: $smallHex "
+                    if(device.currentValue("hex") != smallHex) { 
+    					sendEvent(name: "color", value: smallHex)
+                    }
+                    def result = createEvent( name: "switch.hue", value: i)
                 	return result
                 }
                 if(descMap.attrId == "0001") {  
+                	def smallHex = hsvToHex(device.currentValue("hue") / 100,i / 100)
+                    log.debug "SENDING: $smallHex "
+                   	if(device.currentValue("hex") != smallHex) { 
+    					sendEvent(name: "color", value: smallHex)
+                    }
                     def result = createEvent( name: "switch.saturation", value: i)
                     return result
                 }
@@ -155,6 +166,11 @@ def setHue(value) {
 	cmd
 }
 
+def setAdjustedColor(value){
+	value.level = device.currentValue("level")
+    setColor(value)
+}
+
 def setColor(value){
 	log.trace "setColor($value)"
     
@@ -170,7 +186,13 @@ def setColor(value){
     }
     
 	def max = 0xfe
+	value.hue = value.hue as Integer
+    value.saturation = value.saturation as Integer	
 
+   def smallHex = hsvToHex(value.hue / 100,value.saturation / 100)
+   log.debug "RGB2: $smallHex"
+    
+    sendEvent(name: "color", value: smallHex)
 	sendEvent(name: "hue", value: value.hue)
 	sendEvent(name: "saturation", value: value.saturation)
 	def scaledHueValue = Math.round(value.hue * max / 100.0)
@@ -186,7 +208,7 @@ def setColor(value){
 	cmd << "delay 150"
 	cmd << "st cmd 0x${device.deviceNetworkId} ${endpointId} 0x300 0x03 {${hex(scaledSatValue)} 0000}"
 
-	if (value.level != null && value.level != device.currentValue("level")) {
+	if (value.level != null && value.level * 100 != device.currentValue("level")) {
 		cmd << "delay 150"
 		cmd.addAll(setLevel(value.level))
 	}
@@ -281,7 +303,33 @@ private hex(value, width=2) {
 	s
 }
 
-
 private Integer convertHexToInt(hex) {
 	Integer.parseInt(hex,16)
+}
+
+
+// Derived from java.awt.Color
+def hsvToHex(float hue, float saturation) {
+
+    int h = (int)(hue * 6);
+    float f = hue * 6 - h;
+    float p = (1 - saturation);
+    float q = (1 - f * saturation);
+    float t = (1 - (1 - f) * saturation);
+
+    switch (h) {
+      case 0: return rgbToString(1, t, p);
+      case 1: return rgbToString(q, 1, p);
+      case 2: return rgbToString(p, 1, t);
+      case 3: return rgbToString(p, q, 1);
+      case 4: return rgbToString(t, p, 1);
+      case 5: return rgbToString(1, p, q);
+    }
+}
+
+def rgbToString(float r, float g, float b) {
+    String rs = Integer.toHexString((int)(r * 255))
+    String gs = Integer.toHexString((int)(g * 255));
+    String bs = Integer.toHexString((int)(b * 255));
+    return "#" + rs.toUpperCase() + gs.toUpperCase() + bs.toUpperCase();
 }
