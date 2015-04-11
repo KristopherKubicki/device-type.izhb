@@ -113,7 +113,7 @@ def parse(String description) {
             
         	case "0008":
         		def i = Math.round(convertHexToInt(descMap.value) / 255 * 100 )
-                def result = createEvent( name: "switch.setLevel", value: i)
+                def result = createEvent( name: "level", value: i)
                 return result
              
              // This doesn't seem to be updating the saturation or the hue in the app, even though it should
@@ -121,20 +121,18 @@ def parse(String description) {
                 def i = Math.round(convertHexToInt(descMap.value) / 255 * 100 )
                 if(descMap.attrId == "0000") { 
                     def smallHex = hsvToHex(i / 100,device.currentValue("saturation") / 100)
-                    log.debug "SENDING: $smallHex "
                     if(device.currentValue("hex") != smallHex) { 
     					sendEvent(name: "color", value: smallHex)
                     }
-                    def result = createEvent( name: "switch.hue", value: i)
+                    def result = createEvent( name: "hue", value: i)
                 	return result
                 }
                 if(descMap.attrId == "0001") {  
                 	def smallHex = hsvToHex(device.currentValue("hue") / 100,i / 100)
-                    log.debug "SENDING: $smallHex "
                    	if(device.currentValue("hex") != smallHex) { 
     					sendEvent(name: "color", value: smallHex)
                     }
-                    def result = createEvent( name: "switch.saturation", value: i)
+                    def result = createEvent( name: "saturation", value: i)
                     return result
                 }
     	}                       
@@ -158,7 +156,7 @@ def off() {
 
 def setHue(value) {
 	def max = 0xfe
-	log.trace "setHue($value)"
+//	log.trace "setHue($value)"
 	sendEvent(name: "hue", value: value)
 	def scaledValue = Math.round(value * max / 100.0)
 	def cmd = "st cmd 0x${device.deviceNetworkId} ${endpointId} 0x300 0x00 {${hex(scaledValue)} 00 0000}"
@@ -189,8 +187,7 @@ def setColor(value){
 	value.hue = value.hue as Integer
     value.saturation = value.saturation as Integer	
 
-   def smallHex = hsvToHex(value.hue / 100,value.saturation / 100)
-   log.debug "RGB2: $smallHex"
+	def smallHex = hsvToHex(value.hue / 100,value.saturation / 100)
     
     sendEvent(name: "color", value: smallHex)
 	sendEvent(name: "hue", value: value.hue)
@@ -284,7 +281,8 @@ def setLevel(value) {
 	}
 
 	sendEvent(name: "level", value: value)
-	def level = new BigInteger(Math.round(value * 255 / 100).toString()).toString(16)
+	def level = hex(value * 2.55)
+    if(value == 1) { level = hex(1) }
 	cmds << "st cmd 0x${device.deviceNetworkId} ${endpointId} 8 4 {${level} 0000}"
 
 	//log.debug cmds
